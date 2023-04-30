@@ -11,19 +11,34 @@ import (
 	"time"
 )
 
-const (	
+const (
+	// Add the login to the FTP server here
 	server     = "YOUR_SERVER:PORT"
 	user       = "YOUR_USER"
 	pass       = "YOUR_PASS"
 	serverPath = "/YOUR_DIRECTORY_TO_PB_SS/svss/"
-	timeout    = 30 * time.Second
-	maxRetries = 3
+	// DownloadFolder Add the path to the folder where you want to save the PB SS
+	DownloadFolder = "punkbustersstodiscord"
+	timeout        = 35 * time.Second
+	maxRetries     = 2
+	maxFileQueue   = 75
 )
 
 var wg sync.WaitGroup
+var anyNumber = 0
+var UserHomeDir, _ = os.UserHomeDir()
 
 func main() {
 	fileList := fileList()
+	if len(fileList) == 0 {
+		log.Println("No files to download!")
+		time.Sleep(50 * time.Second)
+		main()
+	} else if len(fileList) < 10 {
+		time.Sleep(50 * time.Second)
+		main()
+		return
+	}
 	fmt.Println("Found", len(fileList), "files to download!\n")
 
 	for _, filename := range fileList {
@@ -31,7 +46,7 @@ func main() {
 		go func(filename string) {
 			defer wg.Done()
 
-			c, err := ftp.Dial(server, ftp.DialWithTimeout(timeout))
+			c, err := ftp.Dial(server, ftp.DialWithTimeout(timeout), ftp.DialWithShutTimeout(timeout))
 			if err != nil {
 				log.Println("[MAIN] Error while connecting to FTP server:", err)
 				return
@@ -43,8 +58,11 @@ func main() {
 			}
 
 			filePath := filepath.Join(serverPath, filename)
-			localPath := filepath.Join("downloads", filename)
-			log.Println("Downloading:", filename)
+			localPath := filepath.Join(UserHomeDir, DownloadFolder, filename)
+			// Create LocalPath if it doesn't exist
+			if _, err := os.Stat(filepath.Join(UserHomeDir, DownloadFolder)); os.IsNotExist(err) {
+				os.Mkdir(filepath.Join(UserHomeDir, DownloadFolder), 0777)
+			}
 
 			// Create local file
 			var downloaded bool
@@ -73,11 +91,7 @@ func main() {
 
 				downloaded = true
 				// Delete file from server
-				err = c.Delete(filePath)
-				if err != nil {
-					log.Println("[MAIN] Error while deleting file from server:", err)
-				}
-
+				c.Delete(filePath) // Always return an error (even if the file is deleted)
 				break
 			}
 
@@ -91,11 +105,12 @@ func main() {
 	}
 
 	wg.Wait()
+	anyNumber = 0
 	verifyLocalFiles()
 	DisgordMain()
 
 	// Delete all files in downloads folder after sent to Discord
-	dir, err := os.Open("downloads/")
+	dir, err := os.Open(DownloadFolder + "/")
 	if err != nil {
 		log.Println("[MAIN:Delete] Error while opening local directory:", err)
 	}
@@ -106,7 +121,7 @@ func main() {
 		log.Println("[MAIN:Delete] Error while reading local directory:", err)
 	}
 	for _, file := range files {
-		err := os.Remove(filepath.Join("downloads", file.Name()))
+		err := os.Remove(filepath.Join(DownloadFolder, file.Name()))
 		if err != nil {
 			log.Println("[MAIN:Delete] Error while deleting local file:", err)
 		} else {
@@ -116,7 +131,7 @@ func main() {
 }
 
 func verifyLocalFiles() { // Verify the integrity of the files
-	dir, err := os.Open("downloads/")
+	dir, err := os.Open(DownloadFolder + "/")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -129,7 +144,7 @@ func verifyLocalFiles() { // Verify the integrity of the files
 	for _, file := range files { // Delete files with 0 bits (corrupted)
 		if file.Size() == 0 {
 			fmt.Println("Deleting file: ", file.Name())
-			err := os.Remove("downloads/" + file.Name())
+			err := os.Remove(DownloadFolder + "/" + file.Name())
 			if err != nil {
 				log.Panic("[MAIN:verifyLocalFiles] Error while deleting Server Files:", err)
 			}
@@ -139,29 +154,42 @@ func verifyLocalFiles() { // Verify the integrity of the files
 
 // Func return the file list from the server
 func fileList() []string {
-
-	c, err := ftp.Dial(server, ftp.DialWithTimeout(timeout))
-	if err != nil {
-		log.Panic(err)
-	}
-	err = c.Login(user, pass)
-	if err != nil {
-		log.Panic(err)
-	}
-	defer c.Quit()
-
-	ftpFileList, err := c.List(serverPath)
-	if err != nil {
-		log.Panic("[MAIN] Error on List: ", err)
-	}
-	if len(ftpFileList) == 0 {
-		log.Panic("[MAIN] No files found")
-	}
-	var fileList []string
-	for _, file := range ftpFileList {
-		if file.Size > 1000 && file.Name != "pbsvss.htm" {
-			fileList = append(fileList, file.Name)
+	for i := 0; i < maxRetries; i++ {
+		c, err := ftp.Dial(server, ftp.DialWithTimeout(timeout), ftp.DialWithShutTimeout(timeout))
+		if err != nil {
+			log.Println("[MAIN] Error while connecting to FTP server:", err)
+			continue
 		}
+		err = c.Login(user, pass)
+		if err != nil {
+			log.Println("[MAIN] Error while logging in:", err)
+			continue
+		}
+		defer c.Quit()
+
+		ftpFileList, err := c.List(serverPath)
+		if err != nil {
+			log.Println("[MAIN] Error on List: ", err)
+			continue
+		}
+		if len(ftpFileList) == 0 {
+			log.Println("[MAIN] No files found")
+			// Wait for new files
+			time.Sleep(5 * time.Second)
+			break
+		}
+		var fileList []string
+		for _, file := range ftpFileList {
+			if file.Size > 1000 && file.Name != "pbsvss.htm" {
+				if anyNumber == maxFileQueue {
+					return fileList
+				}
+				fileList = append(fileList, file.Name)
+				anyNumber++
+			}
+		}
+		return fileList
 	}
-	return fileList
+	log.Println("[MAIN] Failed to get file list after 3 retries")
+	return nil
 }

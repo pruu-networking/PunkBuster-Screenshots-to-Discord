@@ -7,39 +7,47 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 )
 
 var (
+	// BotToken Add your bot token and Channel ID here
 	BotToken  = flag.String("token", "SECRET.TOKEN_HERE", "Bot token")
 	ChannelID = "YOUR_Screenshots_ChannelID" // You should create a New Channel! The bot will spam a lot of images!
 )
 
 func DisgordMain() {
+	DcSession, _ := discordgo.New("Bot " + *BotToken)
 
-	sc, _ := discordgo.New("Bot " + *BotToken)
-	sc.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		fmt.Println("Bot job is done, closing the session!")
-		err := sc.Close()
+	DcSession.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		fmt.Println("Bot job is done, waiting for new files!")
+		// Add a timer to check for new files every 5 seconds
+		time.Sleep(20 * time.Second)
+		err := DcSession.Close()
 		if err != nil {
 			log.Println("[BOT] Error while closing the session:", err)
 		}
+		// Delete files on local directory
+		dir, _ := os.Open(DownloadFolder + "/")
+		defer dir.Close()
+		files, _ := dir.Readdir(-1)
+		for _, file := range files {
+			err := os.Remove(filepath.Join(DownloadFolder, file.Name()))
+			if err != nil {
+				log.Println("[BOT:Delete] Error while deleting local file:", err)
+			} else {
+				log.Println("Deleted local file:", file.Name())
+			}
+		}
+		main()
 	})
 
 	for x := 0; x < len(fileVerify()); x++ {
-		userHomeDir, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Println("[BOT] Error getting user home directory:", err)
-			return
-		}
 
 		//fmt.Println("Files found")
-		filePath := userHomeDir + "/git/PunkBuster-Screenshots-to-Discord/downloads/" + fileVerify()[x]
-		// if file is NIL, skip
-		if fileVerify()[x] == "nil" {
-			log.Println("[BOT] File is NIL, skipping...")
-			continue
-		}
+		filePath := UserHomeDir + DownloadFolder + "/" + fileVerify()[x]
 
 		log.Println("Sending file: ", fileVerify()[x])
 		myFile, err := os.Open(filePath)
@@ -48,22 +56,21 @@ func DisgordMain() {
 		}
 		defer myFile.Close()
 
-		_, err = sc.ChannelFileSend(ChannelID, filePath, myFile)
+		_, err = DcSession.ChannelFileSend(ChannelID, fileVerify()[x], myFile)
 		if err != nil {
 			log.Panicf("[BOT] Cannot send the file to the Channel: %v", err)
 		}
 	}
-
-	err := sc.Open()
+	err := DcSession.Open()
 	if err != nil {
-		log.Println("[BOT] Cannot open the session:", err)
+		log.Panicln("[BOT] Cannot open the session:", err)
 	}
-	defer sc.Close()
+	defer DcSession.Close()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGINT, os.Kill)
 	<-stop
-	log.Println("Graceful shutdown")
+	//log.Println("Graceful shutdown")
 	stop <- os.Interrupt
 
 }
@@ -71,7 +78,7 @@ func DisgordMain() {
 func fileVerify() []string { // Check if the file exists and return as io.Reader
 	// List all files on local path downloads/
 	userHomeDir, _ := os.UserHomeDir()
-	filePath := userHomeDir + "/git/PunkBuster-Screenshots-to-Discord/downloads/"
+	filePath := userHomeDir + "/git/PunkBuster-Screenshots-to-Discord/" + DownloadFolder + "/"
 	files, err := os.ReadDir(filePath)
 	if err != nil {
 		log.Println("[BOT] Error on verifying Local Files:", err)
