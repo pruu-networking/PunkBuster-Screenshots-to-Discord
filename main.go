@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,14 +22,22 @@ const (
 	DownloadFolder = "punkbustersstodiscord"
 	timeout        = 35 * time.Second
 	maxRetries     = 2
-	maxFileQueue   = 75
 )
 
-var wg sync.WaitGroup
-var anyNumber = 0
-var UserHomeDir, _ = os.UserHomeDir()
+var (
+	maxFileQueue   = 75
+	wg             sync.WaitGroup
+	anyNumber      = 0
+	UserHomeDir, _ = os.UserHomeDir()
+)
 
 func main() {
+
+	DeleteLocal() // Call it before downloading new files
+
+	if maxFileQueue < 10 {
+		maxFileQueue = 11
+	}
 	fileList := fileList()
 	if len(fileList) == 0 {
 		log.Println("No files to download!")
@@ -108,9 +117,12 @@ func main() {
 	anyNumber = 0
 	verifyLocalFiles()
 	DisgordMain()
+	DeleteLocal()
 
+}
+func DeleteLocal() {
 	// Delete all files in downloads folder after sent to Discord
-	dir, err := os.Open(DownloadFolder + "/")
+	dir, err := os.Open(filepath.Join(UserHomeDir, DownloadFolder))
 	if err != nil {
 		log.Println("[MAIN:Delete] Error while opening local directory:", err)
 	}
@@ -121,7 +133,7 @@ func main() {
 		log.Println("[MAIN:Delete] Error while reading local directory:", err)
 	}
 	for _, file := range files {
-		err := os.Remove(filepath.Join(DownloadFolder, file.Name()))
+		err := os.Remove(filepath.Join(UserHomeDir, DownloadFolder, file.Name()))
 		if err != nil {
 			log.Println("[MAIN:Delete] Error while deleting local file:", err)
 		} else {
@@ -129,9 +141,8 @@ func main() {
 		}
 	}
 }
-
 func verifyLocalFiles() { // Verify the integrity of the files
-	dir, err := os.Open(DownloadFolder + "/")
+	dir, err := os.Open(filepath.Join(UserHomeDir, DownloadFolder))
 	if err != nil {
 		log.Panic(err)
 	}
@@ -144,7 +155,7 @@ func verifyLocalFiles() { // Verify the integrity of the files
 	for _, file := range files { // Delete files with 0 bits (corrupted)
 		if file.Size() == 0 {
 			fmt.Println("Deleting file: ", file.Name())
-			err := os.Remove(DownloadFolder + "/" + file.Name())
+			err := os.Remove(filepath.Join(UserHomeDir, DownloadFolder) + "/" + file.Name())
 			if err != nil {
 				log.Panic("[MAIN:verifyLocalFiles] Error while deleting Server Files:", err)
 			}
@@ -180,7 +191,8 @@ func fileList() []string {
 		}
 		var fileList []string
 		for _, file := range ftpFileList {
-			if file.Size > 1000 && file.Name != "pbsvss.htm" {
+			// Ignore files smaller than 1000 bytes and just check .png files:
+			if file.Size > 1000 && strings.Contains(file.Name, ".png") {
 				if anyNumber == maxFileQueue {
 					return fileList
 				}
