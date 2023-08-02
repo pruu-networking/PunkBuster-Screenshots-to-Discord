@@ -1,0 +1,33 @@
+version: '3'
+services:
+  server1:
+    build:
+      context: test
+      dockerfile: Dockerfile
+    container_name: servername1_pbss
+    restart: always
+    environment:
+      - SERVER=1.1.1.1:8821 # FTP Server IP and port
+      - USER=username
+      - PASS=password
+      - SFTP_FOLDER=/1.1.1.1_20000/svss
+      - BOT_TOKEN=discord.bot.token # Discord bot token
+      - CHANNEL_ID=99999 # Discord channel ID, where bot will send messages
+      - WAITING_TIME=30 # Wait time if no screenshots is found, from 2 to 120, default is 30 minutes
+      - SELECT_FTP_MODE=ftp # ftp or sftp, default is ftp
+
+#  server2:
+#    build:
+#      context: test
+#      dockerfile: Dockerfile
+#    container_name: servername2_pbss
+#    restart: always
+#    environment:
+#      - SERVER=1.1.1.1:8821
+#      - USER=username
+#      - PASS=password
+#      - SFTP_FOLDER=/1.1.1.1_20000/svss
+#      - BOT_TOKEN=discord.bot.token
+#      - CHANNEL_ID=10000
+#      - WAITING_TIME=30
+#      - SELECT_FTP_MODE=sftp
