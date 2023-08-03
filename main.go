@@ -88,11 +88,13 @@ func serverSelect(config Config, sshConfig *ssh.ClientConfig) (*ftp.ServerConn, 
 		if err != nil {
 			log.Fatalf("Error running sFTP server: %v", err)
 		}
+		return selectFtp, selectSftp, NDownload
 	} else {
 		selectFtp, NDownload, err = ftpServer(config)
 		if err != nil {
 			log.Fatalf("Error running FTP server: %v", err)
 		}
+		return selectFtp, selectSftp, NDownload
 	}
 
 	return selectFtp, selectSftp, NDownload
@@ -134,7 +136,6 @@ func sftpServer(config Config, sshConfig *ssh.ClientConfig) (*sftp.Client, int, 
 		log.Fatalf("Failed to connect to sFTP server: %v", err)
 	}
 	log.Println("Connected to sFTP server")
-	defer conn.Close()
 
 	client, err := sftp.NewClient(conn)
 	if err != nil {
