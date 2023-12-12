@@ -15,6 +15,7 @@ services:
       - CHANNEL_ID=99999 # Discord channel ID, where bot will send messages
       - WAITING_TIME=30 # Wait time if no screenshots is found, from 2 to 120, default is 30 minutes
       - SELECT_FTP_MODE=ftp # ftp or sftp, default is ftp
+#      - DEBUG_MODE=true # Logs everywhere, use it to track bugs
 
 #  server2:
 #    build:
@@ -31,3 +32,4 @@ services:
 #      - CHANNEL_ID=10000
 #      - WAITING_TIME=30
 #      - SELECT_FTP_MODE=sftp
+#      - DEBUG_MODE=true # Logs everywhere, use it to track bugs

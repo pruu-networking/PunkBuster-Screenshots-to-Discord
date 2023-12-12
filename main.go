@@ -27,6 +27,8 @@ type Config struct {
 }
 
 var NDownload int
+var debugMode bool
+var OneTime = false
 
 func readConfig() (*Config, error) {
 	var cfg Config
@@ -48,6 +50,17 @@ func readConfig() (*Config, error) {
 	cfg.WaitingTime = waitingTime
 	if cfg.WaitingTime < 2 || cfg.WaitingTime > 120 {
 		cfg.WaitingTime = 30
+	}
+
+	// Debug mode
+	debugModeStr := os.Getenv("DEBUG_MODE")
+	debugMode, err = strconv.ParseBool(debugModeStr)
+	if err != nil {
+		debugMode = false // Set a default value if DEBUG_MODE is not provided or not a valid boolean
+	}
+	if !OneTime { // Print the config only once, not every time the Config is read
+		log.Println("Debug mode:", debugMode)
+		OneTime = true
 	}
 
 	// Set default values if not provided
@@ -110,8 +123,9 @@ func ftpServer(config Config) (*ftp.ServerConn, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("Error while connecting to FTP server: %v", err)
 	}
-	log.Println("Connected to FTP server")
-
+	if debugMode {
+		log.Println("Connected to FTP server")
+	}
 	err = client.Login(user, pass)
 	if err != nil {
 		return nil, 0, fmt.Errorf("Error while logging in: %v", err)
@@ -135,18 +149,23 @@ func sftpServer(config Config, sshConfig *ssh.ClientConfig) (*sftp.Client, int, 
 	if err != nil {
 		log.Fatalf("Failed to connect to sFTP server: %v", err)
 	}
-	log.Println("Connected to sFTP server")
-
+	if debugMode {
+		log.Println("Connected to sFTP server")
+	}
 	client, err := sftp.NewClient(conn)
 	if err != nil {
 		log.Fatalf("Failed to create sFTP client: %v", err)
 	}
-	log.Println("Created sFTP client")
+	if debugMode {
+		log.Println("Created sFTP client")
+	}
 	files, err := client.ReadDir(config.SFTPFolder)
 	if err != nil {
 		log.Fatalf("Failed to read sFTP folder: %v", err)
 	}
-	//log.Println("Read sFTP folder, found", len(files), "files")
+	if debugMode {
+		log.Println("Read sFTP folder, found", len(files), "files")
+	}
 
 	NDownload := 0
 	for _, file := range files {
@@ -183,24 +202,30 @@ func main() {
 		}
 
 		if NDownload == 0 {
-			log.Println("No files to download, waiting", cfg.WaitingTime, "minutes")
+			if debugMode {
+				log.Println("No files to download, waiting", cfg.WaitingTime, "minutes")
+			}
 			time.Sleep(time.Minute * time.Duration(cfg.WaitingTime))
 			// Restart the program
 			continue
 		}
-		log.Println("Found", NDownload, "files to download")
+		if debugMode {
+			log.Println("Found", NDownload, "files to download")
+		}
 
 		// Create a Discord session
 		DcSession, err := discordgo.New("Bot " + cfg.BotToken)
 		if err != nil {
-			log.Fatalf("Failed to create Discord session: %w", err)
+			log.Fatalf("Failed to create Discord session: %v", err)
 		}
 		err = DcSession.Open()
 		if err != nil {
-			log.Fatalf("failed to open connection: %w", err)
+			log.Fatalf("failed to open connection: %v", err)
 		}
 		defer DcSession.Close()
-		log.Println("Created Discord session")
+		if debugMode {
+			log.Println("Created Discord session")
+		}
 
 		// Download all the files and send to Discord
 		if sftpClient != nil {
@@ -213,7 +238,9 @@ func main() {
 			}
 		} else {
 			ftpFileList, _ := ftpClientConfig.List(cfg.SFTPFolder)
-			//log.Println("Read FTP folder, found", len(ftpFileList), "files")
+			if debugMode {
+				log.Println("Read FTP folder, found", len(ftpFileList), "files")
+			}
 			for _, file := range ftpFileList {
 				if file.Size > 1000 && strings.Contains(file.Name, ".png") {
 					downloadAndSendToDiscord(DcSession, cfg.SFTPFolder+"/"+file.Name, nil, ftpClientConfig)
@@ -226,6 +253,7 @@ func main() {
 
 func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, client *sftp.Client, ftpClent *ftp.ServerConn) {
 	// Download the file
+	var fileCreationDate string
 	localPath := filepath.Base(filePath)
 	if client != nil {
 		srcFile, err := client.Open(filePath)
@@ -245,6 +273,18 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 			log.Printf("Failed to download file %s: %v", filePath, err)
 			return
 		}
+		// Check the CreationTime of the orignal file
+		checkModTime, err := srcFile.Stat()
+		if err != nil {
+			log.Printf("Failed to get file info %s: %v", filePath, err)
+		} else {
+			creationTime := checkModTime.ModTime().Add(-3 * time.Hour)
+			fileCreationDate = creationTime.Format("2006-01-02 15:04:05")
+			if debugMode {
+				log.Printf("File %s created at %s", filePath, fileCreationDate)
+			}
+		}
+
 		dstFile.Close()
 		srcFile.Close()
 		// Delete the original file
@@ -255,7 +295,9 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 		}
 	} else {
 		myFile, err := os.Create(localPath)
-		//log.Printf("Created local path for file %s", filePath)
+		if debugMode {
+			log.Printf("Created local path for file %s", filePath)
+		}
 		if err != nil {
 			log.Printf("Cannot create local file %s: %v", localPath, err)
 			return
@@ -265,13 +307,17 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 			log.Printf("Failed to download file %s: %v", filePath, err)
 			return
 		}
-		//log.Printf("Downloaded file %s", filePath)
+		if debugMode {
+			log.Printf("Downloaded file %s", filePath)
+		}
 		_, err = io.Copy(myFile, resp)
 		if err != nil {
 			log.Println("Failed to copy file:", err, filePath)
 			return
 		}
-		//log.Printf("Copied file %s", filePath)
+		if debugMode {
+			log.Printf("Copied file %s", filePath)
+		}
 		myFile.Close()
 		resp.Close()
 		err = ftpClent.Delete(filePath)
@@ -279,7 +325,9 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 			log.Println("Failed to delete remote file:", err, filePath)
 			return
 		}
-		//log.Println("Deleted remote file:", filePath)
+		if debugMode {
+			log.Println("Deleted remote file:", filePath)
+		}
 	}
 
 	// Extract pbGuid
@@ -292,6 +340,7 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 
 	j := 0
 	var pbGuid string
+
 	data, _ := io.ReadAll(myFile)
 	lines := strings.Split(string(data), "\n")
 PbLoop:
@@ -302,6 +351,7 @@ PbLoop:
 		}
 		j++
 	}
+
 	err = myFile.Close()
 	if err != nil {
 		log.Printf("Failed to close file %s: %v", localPath, err)
@@ -309,7 +359,7 @@ PbLoop:
 	}
 
 	// Send the file to Discord
-	err = Sender(DcSession, pbGuid, localPath)
+	err = Sender(DcSession, pbGuid, localPath, fileCreationDate)
 	if err != nil {
 		log.Printf("Failed to send file %s to Discord: %v", filePath, err)
 	}
@@ -321,17 +371,19 @@ PbLoop:
 	}
 }
 
-func Sender(DcSession *discordgo.Session, pbGuid, filePath string) error {
+func Sender(DcSession *discordgo.Session, pbGuid, filePath, fileCreationDate string) error {
 	// Open the file
 	fileData, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	//log.Println("Opened file:", fileData.Name())
+	if debugMode {
+		log.Println("Opened file:", fileData.Name())
+	}
 	defer fileData.Close()
 	cfg, _ := readConfig()
 	_, err = DcSession.ChannelMessageSendComplex(cfg.ChannelID, &discordgo.MessageSend{
-		Content: "File: " + fileData.Name() + "\n" + "PBGUID: " + pbGuid,
+		Content: "File: " + fileData.Name() + " | Created at: " + fileCreationDate + "\n" + "PBGUID: " + pbGuid,
 		Files: []*discordgo.File{
 			{
 				Name:   fileData.Name(),
@@ -339,7 +391,9 @@ func Sender(DcSession *discordgo.Session, pbGuid, filePath string) error {
 			},
 		},
 	})
-	//log.Printf("Sending: %s", fileData.Name())
+	if debugMode {
+		log.Printf("Sending: %s", fileData.Name())
+	}
 	if err != nil {
 		fileData.Close()
 		return fmt.Errorf("failed to send message: %w", err)
