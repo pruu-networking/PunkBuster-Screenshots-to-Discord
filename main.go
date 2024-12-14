@@ -121,19 +121,19 @@ func ftpServer(config Config) (*ftp.ServerConn, int, error) {
 
 	client, err := ftp.Dial(server)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Error while connecting to FTP server: %v", err)
+		return nil, 0, fmt.Errorf("error while connecting to FTP server: %v", err)
 	}
 	if debugMode {
 		log.Println("Connected to FTP server")
 	}
 	err = client.Login(user, pass)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Error while logging in: %v", err)
+		return nil, 0, fmt.Errorf("error while logging in: %v", err)
 	}
 	//log.Println("Logged in to FTP server")
 	ftpFileList, err := client.List(serverPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Error on List: %v", err)
+		return nil, 0, fmt.Errorf("error on List: %v", err)
 	}
 	//log.Println("Read FTP folder, found", len(ftpFileList), "files")
 	for _, file := range ftpFileList {
@@ -274,11 +274,11 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 			return
 		}
 		// Check the CreationTime of the orignal file
-		checkModTime, err := srcFile.Stat()
+		fileInfo, err := srcFile.Stat()
 		if err != nil {
 			log.Printf("Failed to get file info %s: %v", filePath, err)
 		} else {
-			creationTime := checkModTime.ModTime().Add(-3 * time.Hour)
+			creationTime := fileInfo.ModTime().Add(-3 * time.Hour)
 			fileCreationDate = creationTime.Format("2006-01-02 15:04:05")
 			if debugMode {
 				log.Printf("File %s created at %s", filePath, fileCreationDate)
@@ -302,7 +302,25 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 			log.Printf("Cannot create local file %s: %v", localPath, err)
 			return
 		}
-		resp, err := ftpClent.Retr(filePath)
+		// Get file information for FTP downloaded file
+		if debugMode {
+			if ftpClent.IsGetTimeSupported() {
+				log.Println("The server supports the MDTM command")
+			} else {
+				log.Println("The server does not support the MDTM command")
+			}
+		}
+		fileInfo, err := ftpClent.GetTime(filePath)
+		fileInfo = fileInfo.Add(-3 * time.Hour)
+		fileCreationDate = fileInfo.Format("2006-01-02 15:04:05")
+		if debugMode {
+			if err != nil {
+				log.Printf("fileInfo error: %v", err)
+			}
+			log.Printf("File %s sent with time: %s", filePath, fileCreationDate)
+		}
+
+		fileResp, err := ftpClent.Retr(filePath)
 		if err != nil {
 			log.Printf("Failed to download file %s: %v", filePath, err)
 			return
@@ -310,7 +328,8 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 		if debugMode {
 			log.Printf("Downloaded file %s", filePath)
 		}
-		_, err = io.Copy(myFile, resp)
+
+		_, err = io.Copy(myFile, fileResp)
 		if err != nil {
 			log.Println("Failed to copy file:", err, filePath)
 			return
@@ -318,8 +337,9 @@ func downloadAndSendToDiscord(DcSession *discordgo.Session, filePath string, cli
 		if debugMode {
 			log.Printf("Copied file %s", filePath)
 		}
+
 		myFile.Close()
-		resp.Close()
+		fileResp.Close()
 		err = ftpClent.Delete(filePath)
 		if err != nil {
 			log.Println("Failed to delete remote file:", err, filePath)
