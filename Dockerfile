@@ -1,10 +1,27 @@
-FROM golang:latest
-LABEL authors="Eduardo."
+# Build Stage
+FROM golang:1.23.4-alpine AS builder
 
-WORKDIR /usr/src/app
+LABEL authors="the-eduardo"
+
+WORKDIR /app
 
 COPY . .
-RUN go mod tidy
-RUN go build -v -o /usr/local/bin/app ./...
 
-CMD ["app"]
+RUN go mod tidy
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o /go/bin/app ./...
+
+# Final stage
+FROM arm64v8/alpine:3.19
+
+WORKDIR /app
+
+# Copy only the built binary from the builder stage
+COPY --from=builder /go/bin/app /app/
+
+# Run as non-root user
+RUN adduser -D appuser
+USER appuser
+
+# Command to run the executable
+CMD ["./app"]
