@@ -19,9 +19,5 @@ WORKDIR /app
 # Copy only the built binary from the builder stage
 COPY --from=builder /go/bin/app /app/
 
-# Run as non-root user
-RUN adduser -D appuser
-USER appuser
-
 # Command to run the executable
 CMD ["./app"]
