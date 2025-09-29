@@ -1,5 +1,5 @@
 # Build Stage
-FROM golang:1.23.4-alpine AS builder
+FROM docker.io/golang:1.23.4-alpine AS builder
 
 LABEL authors="the-eduardo"
 
@@ -12,7 +12,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o /go/bin/app ./...
 
 # Final stage
-FROM arm64v8/alpine:3.19
+FROM docker.io/arm64v8/alpine:3.19
 
 WORKDIR /app
 
